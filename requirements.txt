@@ -8,11 +8,7 @@ typing-extensions==4.12.2
 yfinance==0.2.32
 textblob==0.17.1
 requests==2.31.0
-python-3.12.1
-python-multipart==0.0.6
-pip>=24.0
-setuptools>=70.0.0
-wheel>=0.42.0
+
 
 
 
