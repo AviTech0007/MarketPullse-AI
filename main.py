@@ -17,6 +17,32 @@ app = FastAPI(
     description="AI-powered financial news analysis and investment advisory",
     version="1.0.0"
 )
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+# 1. Define the origins (front-end URLs) that are allowed to make requests.
+# You MUST replace the placeholder URL below with the actual URL of your deployed frontend
+# (after you deploy it in Step 4).
+
+origins = [
+    # Placeholder: Replace with your actual deployed front-end URL (e.g., from Render/Netlify/Vercel)
+    "https://your-frontend-service-name.onrender.com", 
+    "https://marketpullse-ai-3.onrender.com",   # For local development of your front-end
+    "https://marketpullse-ai-3.onrender.com",   # For local testing
+]
+
+# 2. Add the CORS middleware to your FastAPI app.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # The list of allowed domains
+    allow_credentials=True,
+    allow_methods=["*"],    # Allows all HTTP methods (GET, POST, etc.)
+    allow_headers=["*"],    # Allows all necessary headers
+)
+
+# ... your other @app.get and @app.post functions follow ...
 
 # CORS configuration for frontend connection
 app.add_middleware(
@@ -341,10 +367,171 @@ async def startup_event():
     print("🚀 MarketPulse AI Backend Starting...")
     print("=" * 70)
     print(f"📊 Loaded {len(NIFTY50_STOCKS)} stocks from NIFTY 50")
-    print("🔗 API Documentation: http://localhost:8000/docs")
-    print("💡 Interactive API: http://localhost:8000/redoc")
+    print("🔗 API Documentation: https://marketpullse-ai-3.onrender.com/docs")
+    print("💡 Interactive API: https://marketpullse-ai-3.onrender.com/redoc")
     print("=" * 70)
+@app.get("/api/price-history/{stock_symbol}")
+def get_price_history(stock_symbol: str, days: int = 30):
+    """Get historical price data for a stock"""
+    stock = stock_symbol.upper()
+    
+    # Mock data (replace with real API call)
+    prices = []
+    for i in range(days):
+        prices.append({
+            "date": (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d"),
+            "price": round(1000 + random.uniform(-50, 50), 2),
+            "volume": random.randint(1000000, 5000000)
+        })
+    
+    return {
+        "stock_symbol": stock,
+        "prices": prices,
+        "period_days": days
+    }
+    class CompareStocksRequest(BaseModel):
+    stock_symbols: List[str]
 
+@app.post("/api/compare-stocks")
+def compare_stocks(request: CompareStocksRequest):
+    """Compare multiple stocks side by side"""
+    results = []
+    
+    for symbol in request.stock_symbols:
+        articles = generate_mock_news(symbol, count=5)
+        impact = analyze_sentiment_impact(articles)
+        
+        results.append({
+            "symbol": symbol,
+            "impact_score": impact.impact_score,
+            "probability_up": impact.probability_up,
+            "sentiment": "bullish" if impact.probability_up > 0.6 else "bearish"
+        })
+    
+    return {
+        "comparison": results,
+        "best_performer": max(results, key=lambda x: x["impact_score"])
+    }
+    @app.get("/api/trending")
+def get_trending_stocks(limit: int = 5):
+    """Get top trending stocks based on news volume and impact"""
+    trending = []
+    
+    for stock in NIFTY50_STOCKS[:limit]:
+        articles = generate_mock_news(stock["symbol"], count=10)
+        impact = analyze_sentiment_impact(articles)
+        
+        trending.append({
+            "symbol": stock["symbol"],
+            "name": stock["name"],
+            "impact_score": impact.impact_score,
+            "news_count": len(articles),
+            "trend": "up" if impact.probability_up > 0.5 else "down"
+        })
+    
+    # Sort by impact score
+    trending.sort(key=lambda x: x["impact_score"], reverse=True)
+    
+    return {
+        "trending_stocks": trending,
+        "timestamp": datetime.now()
+    }
+    @app.get("/api/search")
+def search_stocks(query: str):
+    """Search for stocks by name or symbol"""
+    query = query.upper()
+    
+    results = [
+        stock for stock in NIFTY50_STOCKS 
+        if query in stock["symbol"].upper() or query in stock["name"].upper()
+    ]
+    
+    return {
+        "query": query,
+        "results": results,
+        "count": len(results)
+    }
+    @app.get("/api/sector-analysis/{sector}")
+def get_sector_analysis(sector: str):
+    """Analyze stocks by sector (Banking, IT, Energy, etc.)"""
+    
+    # Mock sector mapping (expand this based on your needs)
+    sectors = {
+        "banking": ["HDFCBANK", "ICICIBANK", "SBIN", "KOTAKBANK"],
+        "it": ["TCS", "INFY"],
+        "energy": ["RELIANCE"]
+    }
+    
+    sector_stocks = sectors.get(sector.lower(), [])
+    
+    if not sector_stocks:
+        raise HTTPException(status_code=404, detail=f"Sector {sector} not found")
+    
+    analysis = []
+    for symbol in sector_stocks:
+        articles = generate_mock_news(symbol, count=5)
+        impact = analyze_sentiment_impact(articles)
+        
+        analysis.append({
+            "symbol": symbol,
+            "impact_score": impact.impact_score,
+            "probability_up": impact.probability_up
+        })
+    
+    avg_impact = sum(s["impact_score"] for s in analysis) / len(analysis)
+    
+    return {
+        "sector": sector,
+        "stocks": analysis,
+        "average_impact": round(avg_impact, 2),
+        "sector_sentiment": "bullish" if avg_impact > 50 else "bearish"
+    }
+    class Portfolio(BaseModel):
+    stocks: List[dict]  # [{"symbol": "RELIANCE", "quantity": 10, "buy_price": 1000}]
+
+@app.post("/api/portfolio-analysis")
+def analyze_portfolio(portfolio: Portfolio):
+    """Analyze an entire portfolio"""
+    
+    portfolio_analysis = []
+    total_value = 0
+    total_gain_loss = 0
+    
+    for holding in portfolio.stocks:
+        symbol = holding["symbol"]
+        quantity = holding["quantity"]
+        buy_price = holding["buy_price"]
+        
+        # Get current analysis
+        articles = generate_mock_news(symbol, count=5)
+        impact = analyze_sentiment_impact(articles)
+        
+        # Mock current price (replace with real data)
+        current_price = buy_price * (1 + random.uniform(-0.1, 0.2))
+        
+        gain_loss = (current_price - buy_price) * quantity
+        value = current_price * quantity
+        
+        portfolio_analysis.append({
+            "symbol": symbol,
+            "quantity": quantity,
+            "buy_price": buy_price,
+            "current_price": round(current_price, 2),
+            "value": round(value, 2),
+            "gain_loss": round(gain_loss, 2),
+            "gain_loss_percent": round((gain_loss / (buy_price * quantity)) * 100, 2),
+            "recommendation": "HOLD" if impact.probability_up > 0.5 else "CONSIDER_SELLING"
+        })
+        
+        total_value += value
+        total_gain_loss += gain_loss
+    
+    return {
+        "portfolio": portfolio_analysis,
+        "total_value": round(total_value, 2),
+        "total_gain_loss": round(total_gain_loss, 2),
+        "gain_loss_percent": round((total_gain_loss / total_value) * 100, 2) if total_value > 0 else 0
+    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
