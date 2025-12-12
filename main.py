@@ -46,7 +46,7 @@ app.add_middleware(
 )
 
 # API Keys from environment variables
-NEWS_API_KEY = os.getenv("ae892df256774192b7bfd3ac5d072cc9")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY","ae892df256774192b7bfd3ac5d072cc9")
 # ============================================================================
 # DATA MODELS
 # ============================================================================
