@@ -1,14 +1,9 @@
-
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-yfinance==0.2.33
-textblob==0.17.1
-requests==2.31.0
-pydantic==2.5.0
-pydantic-core==2.23.4
-python-dotenv==1.0.0
-annotated-types==0.7.0
-typing-extensions==4.12.2
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+yfinance>=0.2.0
+textblob>=0.17.0
+requests>=2.31.0
+python-dotenv>=1.0.0
 
 
 
