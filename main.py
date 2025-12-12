@@ -590,7 +590,7 @@ async def startup_event():
     print(f"💹 YFinance: {'✅ Enabled' if YFINANCE_AVAILABLE else '❌ Disabled'}")
     print(f"📰 NewsAPI: {'✅ Enabled' if NEWS_API_KEY else '❌ Disabled (using mock data)'}")
     print(f"🧠 TextBlob Sentiment: {'✅ Enabled' if TEXTBLOB_AVAILABLE else '❌ Disabled'}")
-    print("🔗 API Documentation: http://localhost:8000/docs")
+    print("🔗 API Documentation: https://marketpullse-ai-15.onrender.com")
     print("=" * 70)
 
 if __name__ == "__main__":
