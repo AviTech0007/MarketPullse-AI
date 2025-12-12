@@ -11,7 +11,12 @@ from datetime import datetime, timedelta
 from enum import Enum
 import random
 import hashlib
+import yfinance as yf
+from datetime import datetime, timedelta
+import pandas as pd
 
+ticker_symbol = "MSFT"
+msft = yf.Ticker("MSFT")
 app = FastAPI(
     title="MarketPulse AI API",
     description="AI-powered financial news analysis and investment advisory",
