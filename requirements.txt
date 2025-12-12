@@ -1,6 +1,7 @@
 fastapi==0.104.1
 uvicorn==0.24.0
 pydantic==2.5.0
-yfinance==0.2.33
-requests==2.31.0
+yfinance==0.2.32
 textblob==0.17.1
+requests==2.31.0
+python-multipart==0.0.6
