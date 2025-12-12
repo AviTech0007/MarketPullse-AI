@@ -1,6 +1,7 @@
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-pydantic==2.9.2
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+python-dotenv>=1.0.0
 pydantic-core==2.14.6
 yfinance==0.2.32
 textblob==0.17.1
@@ -10,4 +11,8 @@ python-multipart==0.0.6
 pip>=24.0
 setuptools>=70.0.0
 wheel>=0.42.0
+
+
+
+
 
