@@ -1,8 +1,7 @@
-fastapi==0.109.0
-uvicorn==0.27.0
-pydantic==2.5.3
-pydantic-core==2.14.6
-annotated-types==0.6.0
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.4.2
+pydantic-core==2.10.1
 yfinance==0.2.32
 textblob==0.17.1
 requests==2.31.0
