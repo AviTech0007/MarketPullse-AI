@@ -1,4 +1,4 @@
-fastapi==0.109.0
+fastapi==0.95.2
 uvicorn==0.24.0
 pydantic==1.10.13
 yfinance==0.2.32
