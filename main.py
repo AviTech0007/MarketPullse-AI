@@ -1,6 +1,6 @@
 """
-MarketPulse AI - Backend API
-A real-time financial news analysis system with AI-powered investment advice
+MarketPulse AI - Production Backend with Real APIs
+Real-time financial news analysis with YFinance and NewsAPI integration
 """
 
 from fastapi import FastAPI, HTTPException
@@ -11,45 +11,32 @@ from datetime import datetime, timedelta
 from enum import Enum
 import random
 import hashlib
-import yfinance as yf
-from datetime import datetime, timedelta
-import pandas as pd
+import os
+import requests
 
-ticker_symbol = "MSFT"
-msft = yf.Ticker("MSFT")
+# YFinance for real stock data
+try:
+    import yfinance as yf
+    YFINANCE_AVAILABLE = True
+except ImportError:
+    YFINANCE_AVAILABLE = False
+    print("Warning: yfinance not available, using mock data")
+
+# TextBlob for sentiment analysis
+try:
+    from textblob import TextBlob
+    TEXTBLOB_AVAILABLE = True
+except ImportError:
+    TEXTBLOB_AVAILABLE = False
+    print("Warning: textblob not available, using basic sentiment")
+
 app = FastAPI(
     title="MarketPulse AI API",
-    description="AI-powered financial news analysis and investment advisory",
-    version="1.0.0"
-)
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-app = FastAPI()
-
-# 1. Define the origins (front-end URLs) that are allowed to make requests.
-# You MUST replace the placeholder URL below with the actual URL of your deployed frontend
-# (after you deploy it in Step 4).
-
-origins = [
-    # Placeholder: Replace with your actual deployed front-end URL (e.g., from Render/Netlify/Vercel)
-    "https://your-frontend-service-name.onrender.com", 
-    "https://marketpullse-ai-3.onrender.com",   # For local development of your front-end
-    "https://marketpullse-ai-3.onrender.com",   # For local testing
-]
-
-# 2. Add the CORS middleware to your FastAPI app.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,  # The list of allowed domains
-    allow_credentials=True,
-    allow_methods=["*"],    # Allows all HTTP methods (GET, POST, etc.)
-    allow_headers=["*"],    # Allows all necessary headers
+    description="AI-powered financial news analysis and investment advisory with real-time data",
+    version="2.0.0"
 )
 
-# ... your other @app.get and @app.post functions follow ...
-
-# CORS configuration for frontend connection
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -58,6 +45,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# API Keys from environment variables
+NEWS_API_KEY = os.getenv("ae892df256774192b7bfd3ac5d072cc9")
 # ============================================================================
 # DATA MODELS
 # ============================================================================
@@ -100,24 +89,8 @@ class InvestmentAdvice(BaseModel):
     risk_level: str
     stop_loss: Optional[float] = None
     target_price: Optional[float] = None
+    current_price: Optional[float] = None
     timestamp: datetime
-
-class Alert(BaseModel):
-    id: str
-    stock_symbol: str
-    alert_type: str
-    message: str
-    impact_score: float
-    timestamp: datetime
-    is_read: bool
-
-class UserPreferences(BaseModel):
-    user_id: str
-    risk_profile: RiskProfile
-    watchlist: List[str]
-    alert_threshold: float
-    notification_enabled: bool
-
 class StockAnalysisRequest(BaseModel):
     stock_symbol: str
     risk_profile: Optional[RiskProfile] = RiskProfile.MODERATE
@@ -127,50 +100,212 @@ class NewsAnalysisResponse(BaseModel):
     impact_scores: List[MarketImpactScore]
     advice: InvestmentAdvice
 
+class StockPriceData(BaseModel):
+    symbol: str
+    current_price: float
+    previous_close: float
+    change: float
+    change_percent: float
+    volume: int
+    high_52week: float
+    low_52week: float
+    market_cap: Optional[int] = None
+    company_name: str
+
 # ============================================================================
-# MOCK DATA
+# STOCK DATA
 # ============================================================================
 
 NIFTY50_STOCKS = [
-    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd"},
-    {"symbol": "TCS", "name": "Tata Consultancy Services"},
-    {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd"},
-    {"symbol": "INFY", "name": "Infosys Ltd"},
-    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd"},
-    {"symbol": "HINDUNILVR", "name": "Hindustan Unilever Ltd"},
-    {"symbol": "BHARTIARTL", "name": "Bharti Airtel Ltd"},
-    {"symbol": "ITC", "name": "ITC Ltd"},
-    {"symbol": "SBIN", "name": "State Bank of India"},
-    {"symbol": "KOTAKBANK", "name": "Kotak Mahindra Bank"}
+    {"symbol": "RELIANCE", "name": "Reliance Industries Ltd", "ticker": "RELIANCE.NS"},
+    {"symbol": "TCS", "name": "Tata Consultancy Services", "ticker": "TCS.NS"},
+    {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd", "ticker": "HDFCBANK.NS"},
+    {"symbol": "INFY", "name": "Infosys Ltd", "ticker": "INFY.NS"},
+    {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd", "ticker": "ICICIBANK.NS"},
+    {"symbol": "HINDUNILVR", "name": "Hindustan Unilever Ltd", "ticker": "HINDUNILVR.NS"},
+    {"symbol": "BHARTIARTL", "name": "Bharti Airtel Ltd", "ticker": "BHARTIARTL.NS"},
+    {"symbol": "ITC", "name": "ITC Ltd", "ticker": "ITC.NS"},
+    {"symbol": "SBIN", "name": "State Bank of India", "ticker": "SBIN.NS"},
+    {"symbol": "KOTAKBANK", "name": "Kotak Mahindra Bank", "ticker": "KOTAKBANK.NS"}
 ]
 
-NEWS_SOURCES = ["Economic Times", "Moneycontrol", "Bloomberg", "Reuters", "LiveMint"]
+# ============================================================================
+# REAL API FUNCTIONS
+# ============================================================================
 
-SAMPLE_HEADLINES = [
-    "announces record quarterly profits, beats estimates",
-    "faces regulatory scrutiny over market practices",
-    "plans major expansion into renewable energy sector",
-    "reports decline in profit margins amid rising costs",
-    "launches innovative product line targeting millennials",
-    "CEO announces strategic partnership with global leader",
-    "stock surges on strong earnings guidance",
-    "faces headwinds from global economic slowdown"
-]
+def get_real_stock_data(stock_symbol: str) -> Optional[dict]:
+    """Fetch real stock price data from Yahoo Finance"""
+    if not YFINANCE_AVAILABLE:
+        return None
+    
+    try:
+        stock_info = next((s for s in NIFTY50_STOCKS if s["symbol"] == stock_symbol), None)
+        if not stock_info:
+            return None
+        
+        ticker = yf.Ticker(stock_info["ticker"])
+        info = ticker.info
+        hist = ticker.history(period="2d")
+        
+        if hist.empty:
+            return None
+        
+        current_price = float(hist['Close'].iloc[-1])
+        previous_close = float(info.get('previousClose', hist['Close'].iloc[-2] if len(hist) > 1 else current_price))
+        
+        change = current_price - previous_close
+        change_percent = (change / previous_close * 100) if previous_close != 0 else 0
+        
+        return {
+            "symbol": stock_symbol,
+            "current_price": round(current_price, 2),
+            "previous_close": round(previous_close, 2),
+            "change": round(change, 2),
+            "change_percent": round(change_percent, 2),
+            "volume": int(hist['Volume'].iloc[-1]) if 'Volume' in hist.columns else 0,
+            "high_52week": round(float(info.get('fiftyTwoWeekHigh', current_price * 1.2)), 2),
+            "low_52week": round(float(info.get('fiftyTwoWeekLow', current_price * 0.8)), 2),
+            "market_cap": info.get('marketCap'),
+            "company_name": stock_info["name"]
+        }
+    except Exception as e:
+        print(f"Error fetching stock data for {stock_symbol}: {e}")
+        return None
+
+def analyze_sentiment_advanced(text: str) -> SentimentType:
+    """Advanced sentiment analysis using TextBlob"""
+    if not text:
+        return SentimentType.NEUTRAL
+    
+    if TEXTBLOB_AVAILABLE:
+        try:
+            blob = TextBlob(text)
+            polarity = blob.sentiment.polarity
+            
+            if polarity > 0.1:
+                return SentimentType.POSITIVE
+            elif polarity < -0.1:
+                return SentimentType.NEGATIVE
+            else:
+                return SentimentType.NEUTRAL
+        except Exception as e:
+            print(f"TextBlob error: {e}")
+    
+    # Fallback to keyword-based sentiment
+    text_lower = text.lower()
+    positive_words = ["surge", "profit", "growth", "gain", "up", "rise", "bullish", "strong", "beat", "outperform"]
+    negative_words = ["fall", "loss", "decline", "down", "drop", "bearish", "weak", "crash", "underperform", "miss"]
+    
+    pos_count = sum(1 for word in positive_words if word in text_lower)
+    neg_count = sum(1 for word in negative_words if word in text_lower)
+    
+    if pos_count > neg_count:
+        return SentimentType.POSITIVE
+    elif neg_count > pos_count:
+        return SentimentType.NEGATIVE
+    else:
+        return SentimentType.NEUTRAL
+
+def fetch_real_news(stock_symbol: str, company_name: str, count: int = 10) -> List[NewsArticle]:
+    """Fetch real news from NewsAPI"""
+    
+    if not NEWS_API_KEY:
+        print("NewsAPI key not configured, using mock data")
+        return generate_mock_news(stock_symbol, count)
+    
+    try:
+        url = "https://newsapi.org/v2/everything"
+        params = {
+            "q": company_name,
+            "language": "en",
+            "sortBy": "publishedAt",
+            "pageSize": min(count * 2, 20),  # Fetch more to filter
+            "apiKey": NEWS_API_KEY
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code != 200:
+            print(f"NewsAPI error: {response.status_code}")
+            return generate_mock_news(stock_symbol, count)
+        
+        data = response.json()
+        articles = []
+        
+        for article in data.get("articles", []):
+            if not article.get("title") or article.get("title") == "[Removed]":
+                continue
+            
+            title = article.get("title", "")
+            description = article.get("description", "")
+            full_text = f"{title} {description}"
+            
+            sentiment = analyze_sentiment_advanced(full_text)
+            
+            try:
+                published_at = article.get("publishedAt", "")
+                if published_at:
+                    timestamp = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+                else:
+                    timestamp = datetime.now()
+            except:
+                timestamp = datetime.now()
+            
+            relevance_score = 0.9 if company_name.lower() in title.lower() else 0.7
+            
+            news_article = NewsArticle(
+                id=hashlib.md5(article["url"].encode()).hexdigest()[:16],
+                headline=title,
+                source=article.get("source", {}).get("name", "Unknown"),
+                url=article.get("url", ""),
+                timestamp=timestamp,
+                companies=[stock_symbol],
+                sentiment=sentiment,
+                relevance_score=relevance_score
+            )
+            articles.append(news_article)
+            
+            if len(articles) >= count:
+                break
+        
+        if not articles:
+            return generate_mock_news(stock_symbol, count)
+        
+        return articles
+        
+    except Exception as e:
+        print(f"Error fetching real news: {e}")
+        return generate_mock_news(stock_symbol, count)
 
 def generate_mock_news(stock_symbol: str, count: int = 5) -> List[NewsArticle]:
+    """Generate mock news articles as fallback"""
     articles = []
     company_name = next((s["name"] for s in NIFTY50_STOCKS if s["symbol"] == stock_symbol), stock_symbol)
     
+    headlines = [
+        f"{company_name} announces record quarterly profits, beats analyst estimates",
+        f"{company_name} faces regulatory scrutiny over market practices",
+        f"{company_name} plans major expansion into renewable energy sector",
+        f"{company_name} reports decline in profit margins amid rising costs",
+        f"{company_name} launches innovative product line targeting millennials",
+        f"{company_name} CEO announces strategic partnership with global leader",
+        f"{company_name} stock surges on strong earnings guidance",
+        f"{company_name} faces headwinds from global economic slowdown",
+        f"{company_name} invests heavily in digital transformation initiatives",
+        f"{company_name} receives positive analyst upgrade from major firm"
+    ]
+    
+    sources = ["Economic Times", "Moneycontrol", "Bloomberg", "Reuters", "LiveMint", "Business Standard"]
+    
     for i in range(count):
         sentiment = random.choice([SentimentType.POSITIVE, SentimentType.NEGATIVE, SentimentType.NEUTRAL])
-        headline = f"{company_name} {random.choice(SAMPLE_HEADLINES)}"
         
         article = NewsArticle(
             id=hashlib.md5(f"{stock_symbol}{i}{datetime.now()}".encode()).hexdigest()[:16],
-            headline=headline,
-            source=random.choice(NEWS_SOURCES),
+            headline=random.choice(headlines),
+            source=random.choice(sources),
             url=f"https://news.example.com/article/{i}",
-            timestamp=datetime.now() - timedelta(hours=random.randint(1, 24)),
+            timestamp=datetime.now() - timedelta(hours=random.randint(1, 48)),
             companies=[stock_symbol],
             sentiment=sentiment,
             relevance_score=round(random.uniform(0.6, 1.0), 2)
@@ -180,54 +315,96 @@ def generate_mock_news(stock_symbol: str, count: int = 5) -> List[NewsArticle]:
     return articles
 
 def analyze_sentiment_impact(articles: List[NewsArticle]) -> MarketImpactScore:
+    """Analyze news sentiment and calculate market impact"""
+    if not articles:
+        return None
+    
     positive_count = sum(1 for a in articles if a.sentiment == SentimentType.POSITIVE)
     negative_count = sum(1 for a in articles if a.sentiment == SentimentType.NEGATIVE)
+    neutral_count = len(articles) - positive_count - negative_count
     
     total = len(articles)
-    prob_up = (positive_count + 0.5 * (total - positive_count - negative_count)) / total
+    
+    # Weighted probability calculation
+    prob_up = (positive_count + 0.3 * neutral_count) / total if total > 0 else 0.5
     prob_down = 1 - prob_up
     
-    impact_score = round(abs(prob_up - 0.5) * 200, 2)
+    # Impact score: 0-100 scale based on sentiment strength
+    sentiment_strength = abs(positive_count - negative_count) / total if total > 0 else 0
+    impact_score = sentiment_strength * 100
     
-    stock_symbol = articles[0].companies[0] if articles else "UNKNOWN"
+    # Confidence based on volume and recency
+    recent_articles = sum(1 for a in articles if (datetime.now() - a.timestamp).days < 1)
+    confidence = min(0.95, 0.6 + (recent_articles / total * 0.35))
+    
+    stock_symbol = articles[0].companies[0]
     company_name = next((s["name"] for s in NIFTY50_STOCKS if s["symbol"] == stock_symbol), stock_symbol)
+    
+    predicted_min = round(prob_up * 3, 1)
+    predicted_max = round(prob_up * 7, 1)
     
     return MarketImpactScore(
         stock_symbol=stock_symbol,
         company_name=company_name,
-        impact_score=impact_score,
+        impact_score=round(impact_score, 2),
         probability_up=round(prob_up, 2),
         probability_down=round(prob_down, 2),
-        predicted_change_range=f"{round(prob_up * 5, 1)}-{round(prob_up * 8, 1)}%",
+        predicted_change_range=f"{predicted_min}-{predicted_max}%",
         timeframe="48 hours",
-        confidence=round(random.uniform(0.7, 0.95), 2)
+        confidence=round(confidence, 2)
     )
 
-def generate_advice(impact: MarketImpactScore, articles: List[NewsArticle], risk_profile: RiskProfile) -> InvestmentAdvice:
+def generate_advice(impact: MarketImpactScore, articles: List[NewsArticle], 
+                   risk_profile: RiskProfile, stock_data: Optional[dict]) -> InvestmentAdvice:
+    """Generate investment advice based on analysis"""
+    
+    # Determine action based on probability and risk profile
     if impact.probability_up > 0.7:
         action = "BUY"
-        reasoning = f"Strong positive signal detected with {int(impact.probability_up * 100)}% probability of upward movement."
-    elif impact.probability_up > 0.55:
-        action = "WATCH" if risk_profile == RiskProfile.CONSERVATIVE else "BUY"
-        reasoning = f"Moderate positive signal. {int(impact.probability_up * 100)}% chance of price increase."
-    elif impact.probability_down > 0.65:
+        reasoning = f"Strong positive signal detected with {int(impact.probability_up * 100)}% probability of upward movement. Recent news sentiment is highly favorable."
+    elif impact.probability_up > 0.6:
+        if risk_profile == RiskProfile.CONSERVATIVE:
+            action = "WATCH"
+            reasoning = f"Moderate positive signal ({int(impact.probability_up * 100)}% probability up). Conservative investors should monitor closely before entering."
+        else:
+            action = "BUY"
+            reasoning = f"Moderate positive signal with {int(impact.probability_up * 100)}% upward probability. Good opportunity for moderate to aggressive investors."
+    elif impact.probability_down > 0.7:
         action = "SELL"
-        reasoning = f"Negative sentiment dominates with {int(impact.probability_down * 100)}% probability of decline."
+        reasoning = f"Strong negative sentiment detected with {int(impact.probability_down * 100)}% probability of decline. Consider reducing exposure."
+    elif impact.probability_down > 0.6:
+        action = "HOLD"
+        reasoning = f"Cautious outlook with {int(impact.probability_down * 100)}% downward probability. Hold existing positions and reassess."
     else:
         action = "HOLD"
-        reasoning = "Mixed signals. Recommend holding position and monitoring developments."
+        reasoning = "Mixed signals in market sentiment. Recommend maintaining current positions while monitoring developments closely."
     
+    # Risk level based on profile
     risk_levels = {
         RiskProfile.CONSERVATIVE: "Low",
         RiskProfile.MODERATE: "Medium",
         RiskProfile.AGGRESSIVE: "High"
     }
     
+    # Get top 3 most relevant headlines
     key_headlines = [a.headline for a in sorted(articles, key=lambda x: x.relevance_score, reverse=True)[:3]]
     
-    current_price = 1000
-    stop_loss = round(current_price * 0.95, 2) if action == "BUY" else None
-    target_price = round(current_price * (1 + float(impact.predicted_change_range.split('-')[1].strip('%')) / 100), 2) if action == "BUY" else None
+    # Calculate price targets using REAL data if available
+    current_price = None
+    stop_loss = None
+    target_price = None
+    if stock_data:
+        current_price = stock_data["current_price"]
+        
+        if action == "BUY":
+            # Stop loss: 5% below current price
+            stop_loss = round(current_price * 0.95, 2)
+            # Target: Based on predicted range
+            max_gain = float(impact.predicted_change_range.split('-')[1].strip('%'))
+            target_price = round(current_price * (1 + max_gain / 100), 2)
+        elif action == "SELL":
+            # Target for selling: current price is the target
+            target_price = current_price
     
     return InvestmentAdvice(
         stock_symbol=impact.stock_symbol,
@@ -237,6 +414,7 @@ def generate_advice(impact: MarketImpactScore, articles: List[NewsArticle], risk
         risk_level=risk_levels[risk_profile],
         stop_loss=stop_loss,
         target_price=target_price,
+        current_price=current_price,
         timestamp=datetime.now()
     )
 
@@ -249,29 +427,63 @@ def root():
     return {
         "service": "MarketPulse AI",
         "status": "running",
-        "version": "1.0.0",
+        "version": "2.0.0",
+        "features": {
+            "real_stock_prices": YFINANCE_AVAILABLE,
+            "real_news": NEWS_API_KEY is not None,
+            "advanced_sentiment": TEXTBLOB_AVAILABLE
+        },
         "endpoints": {
             "docs": "/docs",
             "health": "/health",
             "stocks": "/api/stocks",
-            "analyze": "/api/analyze"
+            "analyze": "/api/analyze",
+            "stock_price": "/api/stock-price/{symbol}"
         }
     }
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "timestamp": datetime.now()}
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now(),
+        "apis_configured": {
+            "yfinance": YFINANCE_AVAILABLE,
+            "newsapi": NEWS_API_KEY is not None,
+            "textblob": TEXTBLOB_AVAILABLE
+        }
+    }
 
 @app.get("/api/stocks")
 def get_available_stocks():
     return {
-        "stocks": NIFTY50_STOCKS,
+        "stocks": [{"symbol": s["symbol"], "name": s["name"]} for s in NIFTY50_STOCKS],
         "total": len(NIFTY50_STOCKS),
         "index": "NIFTY 50"
     }
 
+@app.get("/api/stock-price/{stock_symbol}", response_model=StockPriceData)
+def get_stock_price(stock_symbol: str):
+    """Get real-time stock price data from Yahoo Finance"""
+    stock = stock_symbol.upper()
+    
+    valid_symbols = [s["symbol"] for s in NIFTY50_STOCKS]
+    if stock not in valid_symbols:
+        raise HTTPException(status_code=404, detail=f"Stock symbol {stock} not found")
+    
+    stock_data = get_real_stock_data(stock)
+    
+    if not stock_data:
+        raise HTTPException(status_code=503, detail=f"Could not fetch real-time data for {stock}. Service may be temporarily unavailable.")
+    
+    return StockPriceData(**stock_data)
+
 @app.post("/api/analyze", response_model=NewsAnalysisResponse)
 def analyze_stock(request: StockAnalysisRequest):
+    """
+    Main analysis endpoint - combines real stock data and news sentiment
+    to provide AI-powered investment recommendations
+    """
     stock = request.stock_symbol.upper()
     risk_profile = request.risk_profile
     
@@ -279,264 +491,108 @@ def analyze_stock(request: StockAnalysisRequest):
     if stock not in valid_symbols:
         raise HTTPException(status_code=404, detail=f"Stock symbol {stock} not found")
     
-    articles = generate_mock_news(stock, count=10)
+    # Get company name
+    company_name = next((s["name"] for s in NIFTY50_STOCKS if s["symbol"] == stock), stock)
+    
+    # Fetch REAL news (or mock as fallback)
+    articles = fetch_real_news(stock, company_name, count=10)
+    
+    # Get REAL stock price data
+    stock_data = get_real_stock_data(stock)
+    
+    # Analyze sentiment impact
     impact = analyze_sentiment_impact(articles)
-    advice = generate_advice(impact, articles, risk_profile)
+    
+    # Generate investment advice
+    advice = generate_advice(impact, articles, risk_profile, stock_data)
     
     return NewsAnalysisResponse(
-        articles=articles[:5],
+        articles=articles[:5],  # Return top 5 articles
         impact_scores=[impact],
         advice=advice
     )
 
 @app.get("/api/news/{stock_symbol}")
 def get_stock_news(stock_symbol: str, limit: int = 20):
+    """Get recent news articles for a specific stock"""
     stock = stock_symbol.upper()
     
     valid_symbols = [s["symbol"] for s in NIFTY50_STOCKS]
     if stock not in valid_symbols:
         raise HTTPException(status_code=404, detail=f"Stock symbol {stock} not found")
     
-    articles = generate_mock_news(stock, count=limit)
+    company_name = next((s["name"] for s in NIFTY50_STOCKS if s["symbol"] == stock), stock)
+    articles = fetch_real_news(stock, company_name, count=limit)
     
     return {
         "stock_symbol": stock,
+        "company_name": company_name,
         "articles": articles,
-        "count": len(articles)
+        "count": len(articles),
+        "using_real_data": NEWS_API_KEY is not None
     }
 
 @app.get("/api/impact-score/{stock_symbol}")
 def get_impact_score(stock_symbol: str):
+    """Get market impact score for a stock based on news sentiment"""
     stock = stock_symbol.upper()
     
     valid_symbols = [s["symbol"] for s in NIFTY50_STOCKS]
     if stock not in valid_symbols:
         raise HTTPException(status_code=404, detail=f"Stock symbol {stock} not found")
     
-    articles = generate_mock_news(stock, count=10)
+    company_name = next((s["name"] for s in NIFTY50_STOCKS if s["symbol"] == stock), stock)
+    articles = fetch_real_news(stock, company_name, count=10)
     impact = analyze_sentiment_impact(articles)
     
     return impact
 
-@app.get("/api/alerts")
-def get_alerts(user_id: str = "default_user", unread_only: bool = False):
-    alerts = []
-    
-    for i, stock in enumerate(NIFTY50_STOCKS[:5]):
-        alert = Alert(
-            id=hashlib.md5(f"{stock['symbol']}{i}".encode()).hexdigest()[:16],
-            stock_symbol=stock["symbol"],
-            alert_type="HIGH_IMPACT" if random.random() > 0.5 else "MODERATE_IMPACT",
-            message=f"Significant news detected for {stock['name']}. Impact score: {random.randint(60, 95)}",
-            impact_score=round(random.uniform(60, 95), 2),
-            timestamp=datetime.now() - timedelta(minutes=random.randint(5, 120)),
-            is_read=False if unread_only or random.random() > 0.5 else True
-        )
-        alerts.append(alert)
-    
-    if unread_only:
-        alerts = [a for a in alerts if not a.is_read]
-    
-    return {
-        "alerts": sorted(alerts, key=lambda x: x.timestamp, reverse=True),
-        "total": len(alerts),
-        "unread": len([a for a in alerts if not a.is_read])
-    }
-
 @app.get("/api/dashboard")
 def get_dashboard_data(user_id: str = "default_user"):
+    """Get dashboard with top movers and market overview"""
     top_stocks = []
+    
     for stock in NIFTY50_STOCKS[:5]:
-        articles = generate_mock_news(stock["symbol"], count=5)
-        impact = analyze_sentiment_impact(articles)
-        top_stocks.append({
-            "symbol": stock["symbol"],
-            "name": stock["name"],
-            "impact_score": impact.impact_score,
-            "probability_up": impact.probability_up,
-            "trend": "up" if impact.probability_up > 0.5 else "down"
-        })
+        try:
+            stock_data = get_real_stock_data(stock["symbol"])
+            articles = fetch_real_news(stock["symbol"], stock["name"], count=5)
+            impact = analyze_sentiment_impact(articles)
+            
+            top_stocks.append({
+                "symbol": stock["symbol"],
+                "name": stock["name"],
+                "current_price": stock_data["current_price"] if stock_data else None,
+                "change_percent": stock_data["change_percent"] if stock_data else None,
+                "impact_score": impact.impact_score,
+                "probability_up": impact.probability_up,
+                "trend": "up" if impact.probability_up > 0.5 else "down"
+            })
+        except:
+            continue
+    
+    # Sort by impact score
+    top_stocks.sort(key=lambda x: x["impact_score"], reverse=True)
     
     return {
         "user_id": user_id,
         "timestamp": datetime.now(),
-        "top_movers": sorted(top_stocks, key=lambda x: x["impact_score"], reverse=True),
-        "total_alerts": random.randint(3, 12),
-        "unread_alerts": random.randint(1, 5),
-        "watchlist_count": random.randint(5, 15)
+        "top_movers": top_stocks,
+        "market_status": "open" if datetime.now().hour < 15 else "closed",
+        "using_real_data": YFINANCE_AVAILABLE and NEWS_API_KEY is not None
     }
 
 @app.on_event("startup")
 async def startup_event():
     print("=" * 70)
-    print("🚀 MarketPulse AI Backend Starting...")
+    print("🚀 MarketPulse AI Backend Starting (Production Mode)...")
     print("=" * 70)
     print(f"📊 Loaded {len(NIFTY50_STOCKS)} stocks from NIFTY 50")
-    print("🔗 API Documentation: https://marketpullse-ai-3.onrender.com/docs")
-    print("💡 Interactive API: https://marketpullse-ai-3.onrender.com/redoc")
+    print(f"💹 YFinance: {'✅ Enabled' if YFINANCE_AVAILABLE else '❌ Disabled'}")
+    print(f"📰 NewsAPI: {'✅ Enabled' if NEWS_API_KEY else '❌ Disabled (using mock data)'}")
+    print(f"🧠 TextBlob Sentiment: {'✅ Enabled' if TEXTBLOB_AVAILABLE else '❌ Disabled'}")
+    print("🔗 API Documentation: http://localhost:8000/docs")
     print("=" * 70)
-@app.get("/api/price-history/{stock_symbol}")
-def get_price_history(stock_symbol: str, days: int = 30):
-    """Get historical price data for a stock"""
-    stock = stock_symbol.upper()
-    
-    # Mock data (replace with real API call)
-    prices = []
-    for i in range(days):
-        prices.append({
-            "date": (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d"),
-            "price": round(1000 + random.uniform(-50, 50), 2),
-            "volume": random.randint(1000000, 5000000)
-        })
-    
-    return {
-        "stock_symbol": stock,
-        "prices": prices,
-        "period_days": days
-    }
-    class CompareStocksRequest(BaseModel):
-    stock_symbols: List[str]
 
-@app.post("/api/compare-stocks")
-def compare_stocks(request: CompareStocksRequest):
-    """Compare multiple stocks side by side"""
-    results = []
-    
-    for symbol in request.stock_symbols:
-        articles = generate_mock_news(symbol, count=5)
-        impact = analyze_sentiment_impact(articles)
-        
-        results.append({
-            "symbol": symbol,
-            "impact_score": impact.impact_score,
-            "probability_up": impact.probability_up,
-            "sentiment": "bullish" if impact.probability_up > 0.6 else "bearish"
-        })
-    
-    return {
-        "comparison": results,
-        "best_performer": max(results, key=lambda x: x["impact_score"])
-    }
-    @app.get("/api/trending")
-def get_trending_stocks(limit: int = 5):
-    """Get top trending stocks based on news volume and impact"""
-    trending = []
-    
-    for stock in NIFTY50_STOCKS[:limit]:
-        articles = generate_mock_news(stock["symbol"], count=10)
-        impact = analyze_sentiment_impact(articles)
-        
-        trending.append({
-            "symbol": stock["symbol"],
-            "name": stock["name"],
-            "impact_score": impact.impact_score,
-            "news_count": len(articles),
-            "trend": "up" if impact.probability_up > 0.5 else "down"
-        })
-    
-    # Sort by impact score
-    trending.sort(key=lambda x: x["impact_score"], reverse=True)
-    
-    return {
-        "trending_stocks": trending,
-        "timestamp": datetime.now()
-    }
-    @app.get("/api/search")
-def search_stocks(query: str):
-    """Search for stocks by name or symbol"""
-    query = query.upper()
-    
-    results = [
-        stock for stock in NIFTY50_STOCKS 
-        if query in stock["symbol"].upper() or query in stock["name"].upper()
-    ]
-    
-    return {
-        "query": query,
-        "results": results,
-        "count": len(results)
-    }
-    @app.get("/api/sector-analysis/{sector}")
-def get_sector_analysis(sector: str):
-    """Analyze stocks by sector (Banking, IT, Energy, etc.)"""
-    
-    # Mock sector mapping (expand this based on your needs)
-    sectors = {
-        "banking": ["HDFCBANK", "ICICIBANK", "SBIN", "KOTAKBANK"],
-        "it": ["TCS", "INFY"],
-        "energy": ["RELIANCE"]
-    }
-    
-    sector_stocks = sectors.get(sector.lower(), [])
-    
-    if not sector_stocks:
-        raise HTTPException(status_code=404, detail=f"Sector {sector} not found")
-    
-    analysis = []
-    for symbol in sector_stocks:
-        articles = generate_mock_news(symbol, count=5)
-        impact = analyze_sentiment_impact(articles)
-        
-        analysis.append({
-            "symbol": symbol,
-            "impact_score": impact.impact_score,
-            "probability_up": impact.probability_up
-        })
-    
-    avg_impact = sum(s["impact_score"] for s in analysis) / len(analysis)
-    
-    return {
-        "sector": sector,
-        "stocks": analysis,
-        "average_impact": round(avg_impact, 2),
-        "sector_sentiment": "bullish" if avg_impact > 50 else "bearish"
-    }
-    class Portfolio(BaseModel):
-    stocks: List[dict]  # [{"symbol": "RELIANCE", "quantity": 10, "buy_price": 1000}]
-
-@app.post("/api/portfolio-analysis")
-def analyze_portfolio(portfolio: Portfolio):
-    """Analyze an entire portfolio"""
-    
-    portfolio_analysis = []
-    total_value = 0
-    total_gain_loss = 0
-    
-    for holding in portfolio.stocks:
-        symbol = holding["symbol"]
-        quantity = holding["quantity"]
-        buy_price = holding["buy_price"]
-        
-        # Get current analysis
-        articles = generate_mock_news(symbol, count=5)
-        impact = analyze_sentiment_impact(articles)
-        
-        # Mock current price (replace with real data)
-        current_price = buy_price * (1 + random.uniform(-0.1, 0.2))
-        
-        gain_loss = (current_price - buy_price) * quantity
-        value = current_price * quantity
-        
-        portfolio_analysis.append({
-            "symbol": symbol,
-            "quantity": quantity,
-            "buy_price": buy_price,
-            "current_price": round(current_price, 2),
-            "value": round(value, 2),
-            "gain_loss": round(gain_loss, 2),
-            "gain_loss_percent": round((gain_loss / (buy_price * quantity)) * 100, 2),
-            "recommendation": "HOLD" if impact.probability_up > 0.5 else "CONSIDER_SELLING"
-        })
-        
-        total_value += value
-        total_gain_loss += gain_loss
-    
-    return {
-        "portfolio": portfolio_analysis,
-        "total_value": round(total_value, 2),
-        "total_gain_loss": round(total_gain_loss, 2),
-        "gain_loss_percent": round((total_gain_loss / total_value) * 100, 2) if total_value > 0 else 0
-    }
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
