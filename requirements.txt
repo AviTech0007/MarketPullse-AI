@@ -1,12 +1,13 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-pydantic==2.5.3
+pydantic>=2.5.0
 pydantic-core==2.14.6
 yfinance==0.2.32
 textblob==0.17.1
 requests==2.31.0
-python-3.11.7
+python-3.12.1
 python-multipart==0.0.6
-setuptools>=65.0.0
-wheel>=0.38.0
+pip>=24.0
+setuptools>=70.0.0
+wheel>=0.42.0
 
