@@ -20,7 +20,7 @@ CORS(app, origins=[
 ])
 
 # Get API keys from environment variables
-GROQ_API_KEY = os.getenv('GROQ_API_KEY', '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')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 NEWS_API_KEY = os.getenv('NEWS_API_KEY')
 
 @app.route('/')
