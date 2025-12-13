@@ -97,7 +97,7 @@ def get_stock_data(symbol):
         return jsonify({
             'error': str(e),
             'message': f'Failed to fetch data for {symbol}'
-        }), 500
+        },500)
 
 @app.route('/api/stocks/search', methods=['GET'])
 def search_stocks():
