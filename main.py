@@ -13,14 +13,13 @@ app = Flask(__name__)
 
 # Configure CORS to allow requests from your frontend
 CORS(app, origins=[
-    "https://market-pulse-hub3000.onrender.com",
     "https://pixel-perfect-ui6.onrender.com",
     "http://localhost:5173",
     "http://localhost:8080"
 ])
 
 # Get API keys from environment variables
-GROQ_API_KEY = os.getenv('GROQ_API_KEY') 
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', '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')
 NEWS_API_KEY = os.getenv('NEWS_API_KEY')
 
 @app.route('/')
@@ -43,9 +42,14 @@ def get_stock_data(symbol):
         # Fetch stock data from yfinance
         stock = yf.Ticker(symbol.upper())
         
-        # Get current info with error handling
+        # Get current info with better error handling
         try:
             info = stock.info
+            if not info:
+                return jsonify({
+                    'error': 'No data available',
+                    'message': f'Unable to fetch data for {symbol}'
+                }), 404
         except Exception as e:
             return jsonify({
                 'error': 'Failed to fetch stock info',
@@ -57,13 +61,13 @@ def get_stock_data(symbol):
             hist = stock.history(period='1d', interval='1m')
             if hist.empty:
                 hist = stock.history(period='5d')
-        except Exception as e:
+        except Exception:
             hist = stock.history(period='5d')
         
         if hist.empty:
             return jsonify({
-                'error': 'No historical data available',
-                'message': f'Unable to fetch data for {symbol}'
+                'error': 'No historical data',
+                'message': f'Unable to fetch chart data for {symbol}'
             }), 404
         
         # Prepare chart data
@@ -75,8 +79,20 @@ def get_stock_data(symbol):
                 'volume': int(row['Volume'])
             })
         
-        # Get current price (most recent close)
-        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else info.get('currentPrice', info.get('regularMarketPrice', 0))
+        # Get current price with multiple fallbacks
+        current_price = 0
+        if not hist.empty:
+            current_price = float(hist['Close'].iloc[-1])
+        elif 'currentPrice' in info:
+            current_price = float(info['currentPrice'])
+        elif 'regularMarketPrice' in info:
+            current_price = float(info['regularMarketPrice'])
+        
+        if current_price == 0:
+            return jsonify({
+                'error': 'Invalid price data',
+                'message': f'Unable to determine current price for {symbol}'
+            }), 404
         
         # Calculate day change
         if len(hist) > 1:
@@ -108,11 +124,16 @@ def get_stock_data(symbol):
         return jsonify(response_data)
         
     except Exception as e:
-        return jsonify({
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error fetching stock data: {error_details}")
+        response = {
             'error': str(e),
             'message': f'Failed to fetch data for {symbol}',
-            'details': 'Please check backend logs for more information'
-        }), 500
+            'type': type(e).__name__
+        }
+        return jsonify(response), 500
+
 @app.route('/api/stocks/search', methods=['GET'])
 def search_stocks():
     """
@@ -307,6 +328,5 @@ def predict_stock():
         }), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5050))
+    port = int(os.getenv('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
-    
