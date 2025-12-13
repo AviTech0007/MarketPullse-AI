@@ -13,6 +13,7 @@ app = Flask(__name__)
 
 # Configure CORS to allow requests from your frontend
 CORS(app, origins=[
+    "https://market-pulse-hub3000.onrender.com",
     "https://pixel-perfect-ui6.onrender.com",
     "http://localhost:5173",
     "http://localhost:8080"
