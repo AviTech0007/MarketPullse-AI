@@ -19,7 +19,7 @@ CORS(app, origins=[
 ])
 
 # Get API keys from environment variables
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+GROQ_API_KEY = os.getenv('GROQ_API_KEY', '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')
 NEWS_API_KEY = os.getenv('NEWS_API_KEY')
 
 @app.route('/')
@@ -94,10 +94,11 @@ def get_stock_data(symbol):
         return jsonify(response_data)
         
     except Exception as e:
-        return jsonify({
+        response = {
             'error': str(e),
             'message': f'Failed to fetch data for {symbol}'
-        },500)
+        }
+        return jsonify(response), 500
 
 @app.route('/api/stocks/search', methods=['GET'])
 def search_stocks():
@@ -195,12 +196,12 @@ def get_stock_news(symbol):
 @app.route('/api/predict', methods=['POST'])
 def predict_stock():
     """
-    Generate AI prediction using Gemini API
+    Generate AI prediction using Groq API
     Requires: symbol, riskProfile in request body
     """
-    if not GEMINI_API_KEY:
+    if not GROQ_API_KEY:
         return jsonify({
-            'error': 'Gemini API key not configured'
+            'error': 'Groq API key not configured'
         }), 500
     
     try:
@@ -222,7 +223,7 @@ def predict_stock():
         volume = info.get('volume', 0)
         avg_volume = info.get('averageVolume', 0)
         
-        # Prepare prompt for Gemini
+        # Prepare prompt for Groq
         prompt = f"""
         Analyze {symbol} ({info.get('longName', symbol)}) stock and provide a trading recommendation.
         
@@ -244,21 +245,30 @@ def predict_stock():
         Format as JSON with keys: recommendation, confidence, reasoning, risk
         """
         
-        # Call Gemini API
-        gemini_url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}'
+        # Call Groq API
+        groq_url = 'https://api.groq.com/openai/v1/chat/completions'
         
-        gemini_payload = {
-            'contents': [{
-                'parts': [{
-                    'text': prompt
-                }]
-            }]
+        headers = {
+            'Authorization': f'Bearer {GROQ_API_KEY}',
+            'Content-Type': 'application/json'
         }
         
-        gemini_response = requests.post(gemini_url, json=gemini_payload)
-        gemini_data = gemini_response.json()
+        groq_payload = {
+            'model': 'llama-3.3-70b-versatile',
+            'messages': [
+                {
+                    'role': 'user',
+                    'content': prompt
+                }
+            ],
+            'temperature': 0.7,
+            'max_tokens': 1024
+        }
         
-        if gemini_response.status_code != 200:
+        groq_response = requests.post(groq_url, headers=headers, json=groq_payload)
+        groq_data = groq_response.json()
+        
+        if groq_response.status_code != 200:
             return jsonify({
                 'error': 'Failed to generate prediction',
                 'recommendation': 'HOLD',
@@ -266,8 +276,8 @@ def predict_stock():
                 'reasoning': 'Unable to generate AI prediction at this time.'
             }), 500
         
-        # Extract text from Gemini response
-        ai_text = gemini_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])[0].get('text', '')
+        # Extract text from Groq response
+        ai_text = groq_data.get('choices', [{}])[0].get('message', {}).get('content', '')
         
         return jsonify({
             'symbol': symbol,
@@ -286,3 +296,4 @@ def predict_stock():
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
+    
