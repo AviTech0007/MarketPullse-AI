@@ -19,8 +19,8 @@ CORS(app, origins=[
 ])
 
 # Get API keys from environment variables
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-NEWS_API_KEY = os.getenv('NEWS_API_KEY')
+GEMINI_API_KEY = "AIzaSyC9Ae2ljgCnp_koCbLalHR1Hd_gbWw1OsA"
+NEWS_API_KEY = "531015f2455c44eda78d918844ce8df6"
 
 @app.route('/')
 def home():
@@ -284,5 +284,5 @@ def predict_stock():
         }), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 10000))
+    port = int(os.getenv('PORT', 5050))
     app.run(host='0.0.0.0', port=port, debug=False)
