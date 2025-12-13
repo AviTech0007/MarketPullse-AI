@@ -43,15 +43,28 @@ def get_stock_data(symbol):
         # Fetch stock data from yfinance
         stock = yf.Ticker(symbol.upper())
         
-        # Get current info
-        info = stock.info
+        # Get current info with error handling
+        try:
+            info = stock.info
+        except Exception as e:
+            return jsonify({
+                'error': 'Failed to fetch stock info',
+                'message': str(e)
+            }), 500
         
         # Get historical data for today
-        hist = stock.history(period='1d', interval='1m')
+        try:
+            hist = stock.history(period='1d', interval='1m')
+            if hist.empty:
+                hist = stock.history(period='5d')
+        except Exception as e:
+            hist = stock.history(period='5d')
         
         if hist.empty:
-            # If intraday data not available, get 5 days of data
-            hist = stock.history(period='5d')
+            return jsonify({
+                'error': 'No historical data available',
+                'message': f'Unable to fetch data for {symbol}'
+            }), 404
         
         # Prepare chart data
         chart_data = []
@@ -63,28 +76,28 @@ def get_stock_data(symbol):
             })
         
         # Get current price (most recent close)
-        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else info.get('currentPrice', 0)
+        current_price = float(hist['Close'].iloc[-1]) if not hist.empty else info.get('currentPrice', info.get('regularMarketPrice', 0))
         
         # Calculate day change
         if len(hist) > 1:
             previous_close = float(hist['Close'].iloc[0])
             change = current_price - previous_close
-            change_percent = (change / previous_close) * 100
+            change_percent = (change / previous_close) * 100 if previous_close != 0 else 0
         else:
-            previous_close = info.get('previousClose', current_price)
+            previous_close = info.get('previousClose', info.get('regularMarketPreviousClose', current_price))
             change = current_price - previous_close
             change_percent = (change / previous_close) * 100 if previous_close != 0 else 0
         
         response_data = {
             'symbol': symbol.upper(),
-            'name': info.get('longName', symbol.upper()),
+            'name': info.get('longName', info.get('shortName', symbol.upper())),
             'currentPrice': current_price,
             'previousClose': previous_close,
             'change': round(change, 2),
             'changePercent': round(change_percent, 2),
-            'dayHigh': float(info.get('dayHigh', 0)),
-            'dayLow': float(info.get('dayLow', 0)),
-            'volume': int(info.get('volume', 0)),
+            'dayHigh': float(info.get('dayHigh', info.get('regularMarketDayHigh', 0))),
+            'dayLow': float(info.get('dayLow', info.get('regularMarketDayLow', 0))),
+            'volume': int(info.get('volume', info.get('regularMarketVolume', 0))),
             'marketCap': info.get('marketCap', 0),
             'fiftyTwoWeekHigh': float(info.get('fiftyTwoWeekHigh', 0)),
             'fiftyTwoWeekLow': float(info.get('fiftyTwoWeekLow', 0)),
@@ -95,12 +108,11 @@ def get_stock_data(symbol):
         return jsonify(response_data)
         
     except Exception as e:
-        response = {
+        return jsonify({
             'error': str(e),
-            'message': f'Failed to fetch data for {symbol}'
-        }
-        return jsonify(response), 500
-
+            'message': f'Failed to fetch data for {symbol}',
+            'details': 'Please check backend logs for more information'
+        }), 500
 @app.route('/api/stocks/search', methods=['GET'])
 def search_stocks():
     """
