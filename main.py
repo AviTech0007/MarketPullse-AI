@@ -295,6 +295,6 @@ def predict_stock():
         }), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 10000))
+    port = int(os.getenv('PORT', 5050))
     app.run(host='0.0.0.0', port=port, debug=False)
     
